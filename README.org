@@ -1,0 +1,4 @@
+#+TITLE: runel: extensible lemonbar wrapper
+
+* README
+  Work in progress. But, there is a ~help~ subcommand with all the details.

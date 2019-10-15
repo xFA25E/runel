@@ -1,0 +1,5 @@
+Argument to remote command. It's required by 'set' and 'mode' commands. If remote command is 'mode', then the argument should be a mode in 'mode' directory. With an exception of the 'default' mode, which is reserved mode for runel default state.
+
+If remote command is 'set', then argument should be a runel widegt.
+
+Currently, it's recommended to set only the 'timer' widget.

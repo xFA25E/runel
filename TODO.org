@@ -1,0 +1,17 @@
+#+SEQ_TODO: TODO MAYBE | DONE CANCELLED
+
+* TODO Rewrite binary executables in rust [6/7] [85%]
+  Every printer should be implemented in rust code
+  - [ ] xtitle
+  - [X] xkb-switch
+  - [X] clock
+  - [X] bspc subscribe
+  - [X] alsa volume
+  - [X] brightness
+  - [X] battery
+* MAYBE Graceful shutdown?
+* MAYBE Optimize send_mode in remote.rs
+* TODO Use strum for RunelWidget
+* MAYBE Also, improve efficiency
+  When comes update from another mode, it updates anyway
+* TODO When there is custom mode running, random update quits it

@@ -1,0 +1,1 @@
+Value to a 'set' remote command. Change widget's value to this one. It can be any string.

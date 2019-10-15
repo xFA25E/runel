@@ -1,0 +1,9 @@
+Lemonbar wrapper written in rust. It has two commands: daemon and remote.
+
+Daemon launches lemonbar and detaches itself from terminal. Remote sends commands to daemon instance.
+
+It is configured through Xresources. Also it can be extended with various modes. See 'remote' help section for details.
+
+Log files are in user's cache directory. Socket and pid files are in the user's runtime directory or in /tmp. Mode directory is in user's config directory.
+
+Note: currently it works only with bspwm, maybe I'll add more wm support in the future.

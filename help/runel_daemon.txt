@@ -1,0 +1,1 @@
+Starts main runel process. It launches some theards and corcurrently writes their output to lemonbar. It can be controlled remotely. See 'remote' help section for more details.
