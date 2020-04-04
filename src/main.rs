@@ -23,7 +23,7 @@ fn main() {
     }
 }
 
-fn run(config: Config) -> Result<(), Box<std::error::Error>> {
+fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     match config {
         Config::Daemon(lemonbar_args) => daemon::run(lemonbar_args),
         Config::Remote(command) => remote::run(command),
