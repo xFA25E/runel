@@ -13,7 +13,7 @@ macro_rules! debug_log {
     };
 }
 
-pub fn run(lemonbar_args: Vec<String>) -> Result<(), Box<Error>> {
+pub fn run(lemonbar_args: Vec<String>) -> Result<(), Box<dyn Error>> {
     start_daemon()?;
 
     let mut lemonbar = Lemonbar::start(lemonbar_args)?;
@@ -40,7 +40,7 @@ pub fn run(lemonbar_args: Vec<String>) -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn start_daemon() -> Result<(), Box<Error>> {
+fn start_daemon() -> Result<(), Box<dyn Error>> {
     let pid_path = path::pid()?;
     if pid_path.exists() {
         std::fs::remove_file(&pid_path)?;

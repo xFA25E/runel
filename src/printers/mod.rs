@@ -38,7 +38,7 @@ impl Printers {
     pub fn spawn(&mut self) -> PReceiver {
         let (tx, rx) = channel();
 
-        let printers: Vec<Box<Printer>> = vec![
+        let printers: Vec<Box<dyn Printer>> = vec![
             Box::new(Battery::new(15)),
             Box::new(Brightness::new()),
             Box::new(Bspwm::new()),

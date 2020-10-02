@@ -10,7 +10,7 @@ use std::{
     process::{ChildStdout, Command, Stdio},
 };
 
-fn start_daemon() -> Result<(), Box<Error>> {
+fn start_daemon() -> Result<(), Box<dyn Error>> {
     Daemonize::new()
         .stderr(File::create(path::mode_err()?)?)
         .stdout(File::create(path::mode_out()?)?)
@@ -18,7 +18,7 @@ fn start_daemon() -> Result<(), Box<Error>> {
     Ok(())
 }
 
-pub fn run(command: RunelCommand) -> Result<(), Box<Error>> {
+pub fn run(command: RunelCommand) -> Result<(), Box<dyn Error>> {
     start_daemon()?;
     let mut stream = UnixStream::connect(path::socket()?)?;
 
