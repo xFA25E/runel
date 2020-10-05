@@ -1,8 +1,0 @@
-Modes:
-You can extend runel by your custom modes. Modes are simply executables that output to stdout lines of text. This text is interpreted directy by lemonbar, so you can use colors and other formatting in lemonbar format. Since runel configuration is in .Xresources, I recommend using 'xgetres' command to get runel colors. Just create a shell script in the runel config directory (${XDG_CONFIG_HOME:-$HOME/.config}/runel/<your script>) and make it executable.
-
-Then, run it with:
-$ runel remote mode <your script>
-
-To restore default:
-$ runel remote mode default

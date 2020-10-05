@@ -1,5 +1,0 @@
-Remote command:
-set    - change runel widget value
-reload - reload colors from Xresources
-quit   - shuts down runel instance
-mode   - change runel mode

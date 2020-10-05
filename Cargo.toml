@@ -7,21 +7,10 @@ publish = false
 
 [dependencies]
 daemonize = "0.4.1"
-dirs = "1.0.5"
-nix = "0.14.0"
-libc = "0.2.55"
-chrono = "0.4.6"
-regex = "1.1.6"
-alsa = "0.2.2"
-inotify = "0.7.0"
-xrdb = "0.1.1"
-xcb = {version = "0.8.2", features = ["xkb"]}
-xkbcommon = {version = "0.4.0", features = ["x11"]}
-
-[dependencies.clap]
-version = "2.33.0"
-default-features = false
-features = ["suggestions"]
+dirs = "3.0.1"
+structopt = "0.3.18"
+posixmq = "0.2.0"
+mio = {version = "0.7.2", features = ["os-util", "os-poll"]}
 
 [profile.release]
 lto = true

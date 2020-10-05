@@ -1,1 +1,0 @@
-Runel remote controller. It can set various modes, widget values, make runel quit or reload colors.

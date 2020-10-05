@@ -1,9 +1,0 @@
-{Comma|space}-separated arguments for lemonbar. These arguments are passed directly to lemonbar.
-
-All comands below are equal:
-$ runel -- -a 32 -u 1
-$ runel -- -a,32,-u,1
-$ LEMONBAR_ARGS="-a,32,-u,1" runel
-$ LEMONBAR_ARGS="-a,32" runel -- -u 1
-
-WARNING: if using env variable, arguments must be comma-separated.

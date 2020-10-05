@@ -1,31 +1,44 @@
-use crate::error::RunelParseError;
-use std::{
-    fmt::{self, Display},
-    str::FromStr,
+use {
+    crate::config::CONFIG_DIR,
+    std::{
+        fmt::{self, Display},
+        fs::DirBuilder,
+        path::PathBuf,
+        str::FromStr,
+    },
 };
 
-#[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-pub enum RunelMode {
-    Default,
-    Custom,
+#[derive(Debug, PartialEq, Eq)]
+pub struct Mode {
+    pub mode: String,
+    pub path: PathBuf,
 }
 
-impl FromStr for RunelMode {
-    type Err = RunelParseError;
+impl FromStr for Mode {
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "default" => Ok(RunelMode::Default),
-            _ => Ok(RunelMode::Custom),
+        let mut path = dirs::config_dir().unwrap();
+        path.push(CONFIG_DIR);
+        DirBuilder::new()
+            .recursive(true)
+            .create(&path)
+            .map_err(|e| format!("{}", e))?;
+        path.push(s);
+
+        if !(path.is_file() && path.exists()) {
+            Err(format!("Mode \"{}\" does not exists", s))
+        } else {
+            Ok(Self {
+                mode: s.into(),
+                path,
+            })
         }
     }
 }
 
-impl Display for RunelMode {
+impl Display for Mode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RunelMode::Default => write!(f, "default"),
-            RunelMode::Custom => write!(f, "custom"),
-        }
+        write!(f, "{}", &self.mode)
     }
 }
