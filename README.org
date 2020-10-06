@@ -1,4 +1,8 @@
 #+TITLE: runel: extensible lemonbar wrapper
 
-* README
+* Readme
   Work in progress. But, there is a ~help~ subcommand with all the details.
+
+* Todo
+  make every command program async, so you can check whether there is some data on the
+  pipe and get all of it,
