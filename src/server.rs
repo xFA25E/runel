@@ -5,39 +5,32 @@ use {
         Colors,
     },
     daemonize::Daemonize,
-    mio::{event::Event, unix::SourceFd, Events, Interest, Poll, Token},
-    posixmq::{unlink, OpenOptions, PosixMq},
+    posixmq::{unlink, OpenOptions},
     std::{
         error::Error,
         fmt::Write as FmtWrite,
         fs::File,
-        io::{self, BufRead, BufReader, ErrorKind::WouldBlock, Write},
-        mem::swap,
-        os::unix::io::{AsRawFd, RawFd},
+        io::{self, BufRead, BufReader, Write},
+        path::PathBuf,
         process::{Child, ChildStdout, Command, Stdio},
+        sync::{mpsc, Arc, RwLock},
+        thread,
     },
 };
 
-type ResUp = io::Result<bool>;
-type Value = String;
+type Sender = mpsc::Sender<Result<(), Arc<io::Error>>>;
+type Res<T> = io::Result<T>;
+type Value = Arc<RwLock<String>>;
 type CmdOut = BufReader<ChildStdout>;
 
-struct Commands {
-    bspwm_stdout: CmdOut,
-    bspwm_token: Token,
-    title_stdout: CmdOut,
-    title_token: Token,
+enum Message {
+    Ok,
+    Quit,
 }
 
-struct Mq {
-    mq: PosixMq,
-    buffer: [u8; MAX_MSG_LEN],
-    token: Token,
-    mode: Mode,
-    mode_stdout: CmdOut,
-    mode_token: Token,
-    mode_fd: RawFd,
-    mode_child: Child,
+enum Update {
+    Id(usize),
+    Mode(Mode),
 }
 
 #[derive(Default)]
@@ -51,149 +44,26 @@ pub fn run(lemonbar_args: Vec<String>, mode: Mode, colors: Colors) -> Result<(),
     // _start_daemon()?;
 
     let mut out = lemonbar_out(lemonbar_args)?;
-    let mut bar = Bar::default();
-    let mut uid = make_uid();
-    let mut poll = Poll::new()?;
-    let mut events = Events::with_capacity(64);
-    let mut commands = start_commands(&poll, &mut uid)?;
-    let mut mq = start_listener(&poll, &mut uid, mode)?;
-    let mut buffer = String::new();
+    let mut buf = String::new();
+    let (tx, rx) = mpsc::channel();
+    let bar = Bar::default();
 
-    loop {
-        poll.poll(&mut events, None)?;
+    start_bspwm(Arc::clone(&bar.bspwm), tx.clone())?;
+    start_title(Arc::clone(&bar.title), tx.clone())?;
+    start_listener(Arc::clone(&bar.mode), tx, mode)?;
 
-        for etoken in events.iter().map(Event::token) {
-            let is_new = match () {
-                _ if etoken == mq.token => handle_mq(&mut mq, &poll).map(|()| false)?,
-                _ if etoken == commands.bspwm_token => {
-                    handle_command(&mut commands.bspwm_stdout, &mut bar.bspwm, &mut buffer)?
-                }
-                _ if etoken == commands.title_token => {
-                    handle_command(&mut commands.title_stdout, &mut bar.title, &mut buffer)?
-                }
-                _ if etoken == mq.mode_token => {
-                    handle_command(&mut mq.mode_stdout, &mut bar.mode, &mut buffer)?
-                }
-                _ => unreachable!(),
-            };
-
-            if is_new {
-                fill_buffer(&mut buffer, &bar, &colors)?;
-                println!("{}", &buffer);
-                write!(out, "{}", &buffer)?;
-                out.flush()?;
-                buffer.clear();
-            }
-        }
+    for msg in rx {
+        msg.map_err(|e| Arc::try_unwrap(e).unwrap())?;
+        print_bar(&colors, &mut buf, &bar)?;
+        print!("{}", &buf);
+        write!(out, "{}", &buf)?;
+        out.flush()?;
+        buf.clear();
     }
-}
-
-fn make_uid() -> impl FnMut() -> usize {
-    let mut id = 0;
-    move || {
-        id += 1;
-        id
-    }
-}
-
-fn handle_command(stdout: &mut CmdOut, value: &mut Value, buffer: &mut String) -> ResUp {
-    if 0 == stdout.read_line(buffer)? {
-        return Ok(false);
-    }
-    buffer.pop();
-    let is_new = update_value(value, &buffer);
-    buffer.clear();
-    Ok(is_new)
-}
-
-fn handle_mq(mq: &mut Mq, poll: &Poll) -> io::Result<()> {
-    let mut new_mode = None;
-    loop {
-        match mq.mq.receive(&mut mq.buffer) {
-            Ok((_, len)) => match String::from_utf8_lossy(&mq.buffer[..len]).parse() {
-                Ok(mode @ Mode { .. }) if mode != mq.mode => new_mode = Some(mode),
-                _ => (),
-            },
-            Err(e) if e.kind() != WouldBlock => return Err(e),
-            _ => break,
-        }
-    }
-
-    if let Some(mode) = new_mode {
-        poll.registry().deregister(&mut SourceFd(&mq.mode_fd))?;
-
-        let (stdout, mut child) = command_stdout(&[mode.path.to_str().unwrap()])?;
-        swap(&mut mq.mode_child, &mut child);
-        mq.mode_fd = stdout.as_raw_fd();
-        mq.mode_stdout = BufReader::new(stdout);
-        std::thread::spawn(move || term(child));
-        mq.mode = mode;
-        poll.registry().register(
-            &mut SourceFd(&mq.mode_fd),
-            mq.mode_token,
-            Interest::READABLE,
-        )?;
-    }
-
     Ok(())
 }
 
-fn start_commands(poll: &Poll, mut uid: impl FnMut() -> usize) -> io::Result<Commands> {
-    let mut make = |cmd| -> io::Result<(CmdOut, Token)> {
-        let (stdout, _) = command_stdout(cmd)?;
-        let token = Token(uid());
-        let fd = stdout.as_raw_fd();
-        let stdout = BufReader::new(stdout);
-        poll.registry()
-            .register(&mut SourceFd(&fd), token, Interest::READABLE)?;
-        Ok((stdout, token))
-    };
-
-    let (bspwm_stdout, bspwm_token) = make(BSPWM_CMD)?;
-    let (title_stdout, title_token) = make(TITLE_CMD)?;
-
-    Ok(Commands {
-        bspwm_stdout,
-        bspwm_token,
-        title_stdout,
-        title_token,
-    })
-}
-
-fn start_listener(poll: &Poll, mut uid: impl FnMut() -> usize, mode: Mode) -> io::Result<Mq> {
-    if let Err(_) = unlink(MQUEUE) {}
-
-    let token = Token(uid());
-    let buffer = [0; MAX_MSG_LEN];
-    let mq = OpenOptions::readonly()
-        .max_msg_len(MAX_MSG_LEN)
-        .capacity(CAPACITY)
-        .nonblocking()
-        .create_new()
-        .open(MQUEUE)?;
-    poll.registry()
-        .register(&mut SourceFd(&mq.as_raw_fd()), token, Interest::READABLE)?;
-
-    let (mode_stdout, mode_child) = command_stdout(&[mode.path.to_str().unwrap()])?;
-    let mode_token = Token(uid());
-    let mode_fd = mode_stdout.as_raw_fd();
-    let mode_stdout = BufReader::new(mode_stdout);
-    poll.registry()
-        .register(&mut SourceFd(&mode_fd), mode_token, Interest::READABLE)?;
-
-    Ok(Mq {
-        mq,
-        buffer,
-        token,
-        mode,
-        mode_stdout,
-        mode_token,
-        mode_fd,
-        mode_child,
-    })
-}
-
-fn lemonbar_out(args: Vec<String>) -> io::Result<impl Write> {
+fn lemonbar_out(args: Vec<String>) -> Res<impl Write> {
     let mut child = Command::new("lemonbar")
         .args(&args)
         .stdin(Stdio::piped())
@@ -207,7 +77,59 @@ fn lemonbar_out(args: Vec<String>) -> io::Result<impl Write> {
     Ok(stdin)
 }
 
-fn command_stdout(command: &[&str]) -> io::Result<(ChildStdout, Child)> {
+fn start_bspwm(value: Value, tx: Sender) -> Res<()> {
+    start_command(value, BSPWM_CMD, tx)
+}
+
+fn start_title(value: Value, tx: Sender) -> Res<()> {
+    start_command(value, TITLE_CMD, tx)
+}
+
+fn print_bar(c: &Colors, out: &mut String, bar: &Bar) -> std::fmt::Result {
+    fn split(s: &str) -> Option<(char, &str)> {
+        if s.len() > 1 {
+            Some((s.as_bytes()[0] as char, &s[1..]))
+        } else {
+            None
+        }
+    }
+
+    write!(out, "%{{l}} ")?;
+    for (start, name) in bar.bspwm.read().unwrap().split(':').filter_map(split) {
+        match start {
+            'm' => write!(out, " {}  ", c.monitor.draw(name))?,
+            'M' => write!(out, "-{}- ", c.monitor.draw(name))?,
+            'f' => write!(out, " {}  ", c.free.draw(name))?,
+            'F' => write!(out, "-{}- ", c.free.draw(name))?,
+            'o' => write!(out, " {}  ", c.occupied.draw(name))?,
+            'O' => write!(out, "-{}- ", c.occupied.draw(name))?,
+            'u' => write!(out, " {}  ", c.urgent.draw(name))?,
+            'U' => write!(out, "-{}- ", c.urgent.draw(name))?,
+            'L' | 'T' | 'G' => write!(out, " {}", c.state.draw(name))?,
+            _ => continue,
+        }
+    }
+    writeln!(
+        out,
+        " {}%{{r}} {} ",
+        c.title.draw(bar.title.read().unwrap()),
+        bar.mode.read().unwrap()
+    )
+}
+
+fn update_value(value: &Value, new_value: &str) -> bool {
+    let mut value = value.write().unwrap();
+    let is_new = *value != new_value;
+
+    if is_new {
+        value.clear();
+        value.push_str(new_value);
+    }
+
+    is_new
+}
+
+fn command_stdout(command: &[&str]) -> Res<(Child, CmdOut)> {
     let mut child = Command::new(command[0])
         .args(&command[1..])
         .stdout(Stdio::piped())
@@ -218,53 +140,136 @@ fn command_stdout(command: &[&str]) -> io::Result<(ChildStdout, Child)> {
         .take()
         .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "No stdout of process"))?;
 
-    Ok((stdout, child))
+    Ok((child, BufReader::new(stdout)))
 }
 
-fn update_value(value: &mut Value, new_value: &str) -> bool {
-    let is_new = *value != new_value;
-    if is_new {
-        value.clear();
-        value.push_str(new_value)
-    }
-    is_new
-}
+fn start_command(value: Value, command: &[&str], tx: Sender) -> Res<()> {
+    let mut buf = String::new();
+    let (_, mut stdout) = command_stdout(command)?;
 
-fn fill_buffer(buffer: &mut String, bar: &Bar, c: &Colors) -> Result<(), std::fmt::Error> {
-    write!(buffer, "%{{l}} ")?;
-    for (start, name) in bar.bspwm.split(':').filter_map(split) {
-        match start {
-            'm' => write!(buffer, " {}  ", c.monitor.draw(name))?,
-            'M' => write!(buffer, "-{}- ", c.monitor.draw(name))?,
-            'f' => write!(buffer, " {}  ", c.free.draw(name))?,
-            'F' => write!(buffer, "-{}- ", c.free.draw(name))?,
-            'o' => write!(buffer, " {}  ", c.occupied.draw(name))?,
-            'O' => write!(buffer, "-{}- ", c.occupied.draw(name))?,
-            'u' => write!(buffer, " {}  ", c.urgent.draw(name))?,
-            'U' => write!(buffer, "-{}- ", c.urgent.draw(name))?,
-            'L' | 'T' | 'G' => write!(buffer, " {}", c.state.draw(name))?,
-            _ => continue,
+    thread::spawn(move || loop {
+        match stdout.read_line(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                buf.pop();
+                if update_value(&value, &buf) {
+                    tx.send(Ok(())).unwrap();
+                }
+                buf.clear();
+            }
+            Err(e) => {
+                tx.send(Err(Arc::new(e))).unwrap();
+                break;
+            }
         }
-    }
-    write!(buffer, " {}%{{r}} ", c.title.draw(&bar.title))?;
-    write!(buffer, "{} ", bar.mode)
+    });
+    Ok(())
 }
 
-fn split(s: &str) -> Option<(char, &str)> {
-    if s.len() > 1 {
-        Some((s.as_bytes()[0] as char, &s[1..]))
-    } else {
-        None
+fn make_uid() -> impl FnMut() -> usize {
+    let mut id = 0;
+    move || {
+        id += 1;
+        id
     }
 }
 
-fn term(mut child: Child) {
-    // if let Err(e) = kill(Pid::from_raw(child.id() as i32), SIGTERM) {
-    //     eprintln!("{}", e);
-    // } else
-    if let Err(e) = child.wait() {
-        eprintln!("{}", e);
-    }
+fn start_listener(value: Value, tx: Sender, Mode { mut mode, path }: Mode) -> Res<()> {
+    if let Err(_) = unlink(MQUEUE) {}
+
+    let mq = OpenOptions::readonly()
+        .max_msg_len(MAX_MSG_LEN)
+        .capacity(CAPACITY)
+        .create_new()
+        .open(MQUEUE)?;
+    let mut mq_buffer = [0; MAX_MSG_LEN];
+
+    let mut uid = make_uid();
+    let mut id = uid();
+    let mut buffer = Arc::new(RwLock::new(String::new()));
+    let (mut mtx, mrx) = mpsc::channel();
+    let (utx, urx) = mpsc::channel();
+
+    start_mode(path, Arc::clone(&buffer), id, mrx, utx.clone())?;
+    thread::spawn({
+        let (tx, utx) = (tx.clone(), utx.clone());
+        move || loop {
+            match mq.receive(&mut mq_buffer) {
+                Ok((_, len)) => match String::from_utf8_lossy(&mq_buffer[..len]).parse() {
+                    Ok(mode) => utx.send(Ok(Update::Mode(mode))).unwrap(),
+                    _ => (),
+                },
+                Err(e) => {
+                    tx.send(Err(Arc::new(e))).unwrap();
+                    break;
+                }
+            }
+        }
+    });
+    thread::spawn(move || {
+        for update in urx {
+            match update {
+                Ok(Update::Mode(Mode { mode: m, path })) if m != mode => {
+                    mtx.send(Message::Quit).unwrap();
+                    mode = m;
+                    buffer = Arc::new(RwLock::new(String::new()));
+                    let (mtxn, mrx) = mpsc::channel();
+                    mtx = mtxn;
+                    id = uid();
+                    if let Err(e) = start_mode(path, Arc::clone(&buffer), id, mrx, utx.clone()) {
+                        tx.send(Err(Arc::new(e))).unwrap();
+                    }
+                }
+                Ok(Update::Id(i)) if id == i => {
+                    if update_value(&value, &buffer.read().unwrap()) {
+                        tx.send(Ok(())).unwrap();
+                    }
+                    mtx.send(Message::Ok).unwrap();
+                }
+                Err(e) => tx.send(Err(e)).unwrap(),
+                Ok(_) => (),
+            }
+        }
+    });
+
+    Ok(())
+}
+
+fn start_mode(
+    path: PathBuf,
+    buf: Value,
+    id: usize,
+    mode_rx: mpsc::Receiver<Message>,
+    update_tx: mpsc::Sender<Result<Update, Arc<io::Error>>>,
+) -> Res<()> {
+    let (mut child, mut stdout) = command_stdout(&[path.to_str().unwrap()])?;
+
+    thread::spawn(move || {
+        loop {
+            {
+                let mut b = buf.write().unwrap();
+                b.clear();
+                match stdout.read_line(&mut b) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        b.pop();
+                    }
+                    Err(e) => {
+                        update_tx.send(Err(Arc::new(e))).unwrap();
+                        break;
+                    }
+                }
+            }
+            update_tx.send(Ok(Update::Id(id))).unwrap();
+            match mode_rx.recv().unwrap() {
+                Message::Ok => (),
+                Message::Quit => break,
+            }
+        }
+        drop(stdout);
+        child.wait().unwrap();
+    });
+    Ok(())
 }
 
 fn _start_daemon() -> Result<(), Box<dyn Error>> {

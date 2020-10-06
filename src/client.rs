@@ -1,19 +1,18 @@
 use {
     crate::{
-        config::{CAPACITY, MAX_MSG_LEN, MQUEUE},
+        config::{MAX_MSG_LEN, MQUEUE},
         mode::Mode,
     },
     posixmq::OpenOptions,
-    std::io::ErrorKind::WouldBlock,
+    std::io::ErrorKind::{NotFound, WouldBlock},
 };
 
 pub fn run(mode: Mode) -> std::io::Result<()> {
-    let mq = OpenOptions::writeonly()
-        .max_msg_len(MAX_MSG_LEN)
-        .capacity(CAPACITY)
-        .nonblocking()
-        .create()
-        .open(MQUEUE)?;
+    let mq = match OpenOptions::writeonly().nonblocking().open(MQUEUE) {
+        Ok(mq) => mq,
+        Err(e) if e.kind() == NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
 
     let mut mode = mode.mode;
     mode.truncate(MAX_MSG_LEN);
