@@ -1,8 +1,33 @@
-#+TITLE: runel: extensible lemonbar wrapper
+* runel: extensible lemonbar wrapper
+  Runel is an extensible lemonbar wrapper.  It is configured through =config.rs=.  It is
+  extended through executables in ~${XDG_CONFIG_HOME}/runel~.
 
-* Readme
-  Work in progress. But, there is a ~help~ subcommand with all the details.
+  Executables should endlessly print something to stdout.  Runel will watch for changes in
+  stdout and update lemonbar status.  These executables are called *modes*.  Current
+  *mode* can be changed interactively by passing the ~--mode~ option (without ~--server~
+  flag).
 
-* Todo
-  make every command program async, so you can check whether there is some data on the
-  pipe and get all of it,
+  You can pass lemonabar arguments after ~--~. For example:
+
+  ~runel -s -m default -- -B "#FFFFFF" -F "#000000" -b~
+
+  Or with environment variable ~LEMONBAR_ARGS~:
+
+  ~LEMONBAR_ARGS='-B,#FFFFFF,-F,#000000,-b' runel -s -m default~
+
+  #+BEGIN_SRC text
+    USAGE:
+        runel [FLAGS] [OPTIONS] --mode <MODE> [-- <LEMONBAR_ARGS>...]
+
+    FLAGS:
+        -h, --help       Prints help information
+        -s, --server     Start runel server
+        -V, --version    Prints version information
+
+    OPTIONS:
+            --color-title <COLOR_TITLE>          A color for window title [default: ]
+        -m, --mode <MODE>                        Mode to run
+
+    ARGS:
+        <LEMONBAR_ARGS>...    Lemonbar command line arguments [env: LEMONBAR_ARGS=-n,runel_panel,-f,Iosevka-8]
+  #+END_SRC
