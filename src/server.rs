@@ -41,7 +41,7 @@ struct Bar {
 }
 
 pub fn run(lemonbar_args: Vec<String>, mode: Mode, colors: Colors) -> Result<(), Box<dyn Error>> {
-    // _start_daemon()?;
+    start_daemon()?;
 
     let mut out = lemonbar_out(lemonbar_args)?;
     let mut buf = String::new();
@@ -55,7 +55,6 @@ pub fn run(lemonbar_args: Vec<String>, mode: Mode, colors: Colors) -> Result<(),
     for msg in rx {
         msg.map_err(|e| Arc::try_unwrap(e).unwrap())?;
         print_bar(&colors, &mut buf, &bar)?;
-        print!("{}", &buf);
         write!(out, "{}", &buf)?;
         out.flush()?;
         buf.clear();
@@ -272,7 +271,7 @@ fn start_mode(
     Ok(())
 }
 
-fn _start_daemon() -> Result<(), Box<dyn Error>> {
+fn start_daemon() -> Result<(), Box<dyn Error>> {
     let mut path = dirs::runtime_dir().unwrap();
     path.push("test_".to_owned() + CONFIG_DIR);
     let daemon = Daemonize::new().stderr(File::create(path)?);
