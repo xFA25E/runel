@@ -166,9 +166,9 @@ fn start_command(value: Value, command: &[&str], tx: Sender) -> Res<()> {
 }
 
 fn make_uid() -> impl FnMut() -> usize {
-    let mut id = 0;
+    let mut id: usize = 0;
     move || {
-        id += 1;
+        id = id.overflowing_add(1).0;
         id
     }
 }
@@ -273,7 +273,7 @@ fn start_mode(
 
 fn start_daemon() -> Result<(), Box<dyn Error>> {
     let mut path = dirs::runtime_dir().unwrap();
-    path.push("test_".to_owned() + CONFIG_DIR);
+    path.push(CONFIG_DIR);
     let daemon = Daemonize::new().stderr(File::create(path)?);
     daemon.start()?;
     Ok(())
