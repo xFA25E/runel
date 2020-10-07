@@ -1,8 +1,8 @@
+use crate::Color;
 use {
     crate::{
-        config::{BSPWM_CMD, CAPACITY, CONFIG_DIR, MAX_MSG_LEN, MQUEUE, TITLE_CMD},
+        config::{CAPACITY, CONFIG_DIR, MAX_MSG_LEN, MQUEUE, TITLE_CMD, WMSTATUS_CMD},
         mode::Mode,
-        Colors,
     },
     daemonize::Daemonize,
     posixmq::{unlink, OpenOptions},
@@ -35,12 +35,12 @@ enum Update {
 
 #[derive(Default)]
 struct Bar {
-    bspwm: Value,
+    wmstatus: Value,
     title: Value,
     mode: Value,
 }
 
-pub fn run(lemonbar_args: Vec<String>, mode: Mode, colors: Colors) -> Result<(), Box<dyn Error>> {
+pub fn run(lemonbar_args: Vec<String>, mode: Mode, title: Color) -> Result<(), Box<dyn Error>> {
     start_daemon()?;
 
     let mut out = lemonbar_out(lemonbar_args)?;
@@ -48,13 +48,13 @@ pub fn run(lemonbar_args: Vec<String>, mode: Mode, colors: Colors) -> Result<(),
     let (tx, rx) = mpsc::channel();
     let bar = Bar::default();
 
-    start_bspwm(Arc::clone(&bar.bspwm), tx.clone())?;
+    start_wmstatus(Arc::clone(&bar.wmstatus), tx.clone())?;
     start_title(Arc::clone(&bar.title), tx.clone())?;
     start_listener(Arc::clone(&bar.mode), tx, mode)?;
 
     for msg in rx {
         msg.map_err(|e| Arc::try_unwrap(e).unwrap())?;
-        print_bar(&colors, &mut buf, &bar)?;
+        print_bar(&title, &mut buf, &bar)?;
         write!(out, "{}", &buf)?;
         out.flush()?;
         buf.clear();
@@ -76,42 +76,20 @@ fn lemonbar_out(args: Vec<String>) -> Res<impl Write> {
     Ok(stdin)
 }
 
-fn start_bspwm(value: Value, tx: Sender) -> Res<()> {
-    start_command(value, BSPWM_CMD, tx)
+fn start_wmstatus(value: Value, tx: Sender) -> Res<()> {
+    start_command(value, WMSTATUS_CMD, tx)
 }
 
 fn start_title(value: Value, tx: Sender) -> Res<()> {
     start_command(value, TITLE_CMD, tx)
 }
 
-fn print_bar(c: &Colors, out: &mut String, bar: &Bar) -> std::fmt::Result {
-    fn split(s: &str) -> Option<(char, &str)> {
-        if s.len() > 1 {
-            Some((s.as_bytes()[0] as char, &s[1..]))
-        } else {
-            None
-        }
-    }
-
-    write!(out, "%{{l}} ")?;
-    for (start, name) in bar.bspwm.read().unwrap().split(':').filter_map(split) {
-        match start {
-            'm' => write!(out, " {}  ", c.monitor.draw(name))?,
-            'M' => write!(out, "-{}- ", c.monitor.draw(name))?,
-            'f' => write!(out, " {}  ", c.free.draw(name))?,
-            'F' => write!(out, "-{}- ", c.free.draw(name))?,
-            'o' => write!(out, " {}  ", c.occupied.draw(name))?,
-            'O' => write!(out, "-{}- ", c.occupied.draw(name))?,
-            'u' => write!(out, " {}  ", c.urgent.draw(name))?,
-            'U' => write!(out, "-{}- ", c.urgent.draw(name))?,
-            'L' | 'T' | 'G' => write!(out, " {}", c.state.draw(name))?,
-            _ => continue,
-        }
-    }
+fn print_bar(title: &Color, out: &mut String, bar: &Bar) -> std::fmt::Result {
     writeln!(
         out,
-        " {}%{{r}} {} ",
-        c.title.draw(bar.title.read().unwrap()),
+        "%{{l}} {} {}%{{r}} {} ",
+        bar.wmstatus.read().unwrap(),
+        title.draw(bar.title.read().unwrap()),
         bar.mode.read().unwrap()
     )
 }

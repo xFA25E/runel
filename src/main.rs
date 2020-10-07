@@ -7,32 +7,11 @@ mod server;
 use {color::Color, mode::Mode, structopt::StructOpt};
 
 #[derive(StructOpt)]
-pub struct Colors {
-    #[structopt(long = "color-free", name = "COLOR_FREE", default_value = "")]
-    /// A color for free desktop
-    free: Color,
-    #[structopt(long = "color-monitor", name = "COLOR_MONITOR", default_value = "")]
-    /// A color for monitor
-    monitor: Color,
-    #[structopt(long = "color-occupied", name = "COLOR_OCCUPIED", default_value = "")]
-    /// A color for occupied desktop
-    occupied: Color,
-    #[structopt(long = "color-urgent", name = "COLOR_URGENT", default_value = "")]
-    /// A color for urgent desktop
-    urgent: Color,
-    #[structopt(long = "color-state", name = "COLOR_STATE", default_value = "")]
-    /// A color for window state
-    state: Color,
+/// A Multi-status wrapper for lemonbar
+struct Args {
     #[structopt(long = "color-title", name = "COLOR_TITLE", default_value = "")]
     /// A color for window title
     title: Color,
-}
-
-#[derive(StructOpt)]
-/// A Multi-status wrapper for lemonbar
-struct Args {
-    #[structopt(flatten)]
-    colors: Colors,
     #[structopt(short, long, name = "MODE")]
     /// Mode to run
     mode: Mode,
@@ -51,9 +30,9 @@ fn main() {
         Args {
             server: true,
             mode,
-            colors,
+            title,
             lemonbar_args,
-        } => server::run(lemonbar_args, mode, colors),
+        } => server::run(lemonbar_args, mode, title),
 
         Args {
             server: false,

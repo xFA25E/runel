@@ -1,4 +1,4 @@
-pub const BSPWM_CMD: &'static [&'static str] = &["bspc", "subscribe"];
+pub const WMSTATUS_CMD: &'static [&'static str] = &["wmstatus"];
 pub const TITLE_CMD: &'static [&'static str] = &["xtitle", "-siet170"];
 
 pub const MQUEUE: &'static str = "/runel";
