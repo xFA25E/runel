@@ -1,12 +1,18 @@
-use crate::Color;
 use {
     crate::{
         config::{CAPACITY, CONFIG_DIR, MAX_MSG_LEN, MQUEUE, TITLE_CMD, WMSTATUS_CMD},
         mode::Mode,
+        Color,
     },
     daemonize::Daemonize,
+    nix::{
+        sys::signal::{kill, Signal::SIGTERM},
+        unistd::Pid,
+    },
     posixmq::{unlink, OpenOptions},
+    signal_msg::{Signal, SignalReceiver, SignalSender},
     std::{
+        collections::HashMap,
         error::Error,
         fmt::Write as FmtWrite,
         fs::File,
@@ -26,6 +32,12 @@ type CmdOut = BufReader<ChildStdout>;
 enum Message {
     Ok,
     Quit,
+}
+
+enum KillerMessage {
+    Child(usize, Child),
+    Kill(usize),
+    Signal,
 }
 
 enum Update {
@@ -48,9 +60,10 @@ pub fn run(lemonbar_args: Vec<String>, mode: Mode, title: Color) -> Result<(), B
     let (tx, rx) = mpsc::channel();
     let bar = Bar::default();
 
-    start_wmstatus(Arc::clone(&bar.wmstatus), tx.clone())?;
-    start_title(Arc::clone(&bar.title), tx.clone())?;
-    start_listener(Arc::clone(&bar.mode), tx, mode)?;
+    let wmstatus_child = start_command(Arc::clone(&bar.wmstatus), WMSTATUS_CMD, tx.clone())?;
+    let title_child = start_command(Arc::clone(&bar.title), TITLE_CMD, tx.clone())?;
+    let killer_tx = start_child_killer(vec![wmstatus_child, title_child])?;
+    start_listener(Arc::clone(&bar.mode), tx, mode, killer_tx)?;
 
     for msg in rx {
         msg.map_err(|e| Arc::try_unwrap(e).unwrap())?;
@@ -74,14 +87,6 @@ fn lemonbar_out(args: Vec<String>) -> Res<impl Write> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "No stdout of process"))?;
 
     Ok(stdin)
-}
-
-fn start_wmstatus(value: Value, tx: Sender) -> Res<()> {
-    start_command(value, WMSTATUS_CMD, tx)
-}
-
-fn start_title(value: Value, tx: Sender) -> Res<()> {
-    start_command(value, TITLE_CMD, tx)
 }
 
 fn print_bar(title: &Color, out: &mut String, bar: &Bar) -> std::fmt::Result {
@@ -120,9 +125,9 @@ fn command_stdout(command: &[&str]) -> Res<(Child, CmdOut)> {
     Ok((child, BufReader::new(stdout)))
 }
 
-fn start_command(value: Value, command: &[&str], tx: Sender) -> Res<()> {
+fn start_command(value: Value, command: &[&str], tx: Sender) -> Res<Child> {
     let mut buf = String::new();
-    let (_, mut stdout) = command_stdout(command)?;
+    let (child, mut stdout) = command_stdout(command)?;
 
     thread::spawn(move || loop {
         match stdout.read_line(&mut buf) {
@@ -140,7 +145,7 @@ fn start_command(value: Value, command: &[&str], tx: Sender) -> Res<()> {
             }
         }
     });
-    Ok(())
+    Ok(child)
 }
 
 fn make_uid() -> impl FnMut() -> usize {
@@ -151,7 +156,12 @@ fn make_uid() -> impl FnMut() -> usize {
     }
 }
 
-fn start_listener(value: Value, tx: Sender, Mode { mut mode, path }: Mode) -> Res<()> {
+fn start_listener(
+    value: Value,
+    tx: Sender,
+    Mode { mut mode, path }: Mode,
+    killer_tx: mpsc::Sender<KillerMessage>,
+) -> Res<()> {
     if let Err(_) = unlink(MQUEUE) {}
 
     let mq = OpenOptions::readonly()
@@ -167,7 +177,14 @@ fn start_listener(value: Value, tx: Sender, Mode { mut mode, path }: Mode) -> Re
     let (mut mtx, mrx) = mpsc::channel();
     let (utx, urx) = mpsc::channel();
 
-    start_mode(path, Arc::clone(&buffer), id, mrx, utx.clone())?;
+    start_mode(
+        path,
+        Arc::clone(&buffer),
+        id,
+        mrx,
+        utx.clone(),
+        killer_tx.clone(),
+    )?;
     thread::spawn({
         let (tx, utx) = (tx.clone(), utx.clone());
         move || loop {
@@ -187,13 +204,20 @@ fn start_listener(value: Value, tx: Sender, Mode { mut mode, path }: Mode) -> Re
         for update in urx {
             match update {
                 Ok(Update::Mode(Mode { mode: m, path })) if m != mode => {
-                    mtx.send(Message::Quit).unwrap();
+                    if let Err(_) = mtx.send(Message::Quit) {}
                     mode = m;
                     buffer = Arc::new(RwLock::new(String::new()));
                     let (mtxn, mrx) = mpsc::channel();
                     mtx = mtxn;
                     id = uid();
-                    if let Err(e) = start_mode(path, Arc::clone(&buffer), id, mrx, utx.clone()) {
+                    if let Err(e) = start_mode(
+                        path,
+                        Arc::clone(&buffer),
+                        id,
+                        mrx,
+                        utx.clone(),
+                        killer_tx.clone(),
+                    ) {
                         tx.send(Err(Arc::new(e))).unwrap();
                     }
                 }
@@ -218,8 +242,10 @@ fn start_mode(
     id: usize,
     mode_rx: mpsc::Receiver<Message>,
     update_tx: mpsc::Sender<Result<Update, Arc<io::Error>>>,
+    killer_tx: mpsc::Sender<KillerMessage>,
 ) -> Res<()> {
-    let (mut child, mut stdout) = command_stdout(&[path.to_str().unwrap()])?;
+    let (child, mut stdout) = command_stdout(&[path.to_str().unwrap()])?;
+    killer_tx.send(KillerMessage::Child(id, child)).unwrap();
 
     thread::spawn(move || {
         loop {
@@ -243,10 +269,78 @@ fn start_mode(
                 Message::Quit => break,
             }
         }
-        drop(stdout);
-        child.wait().unwrap();
+        killer_tx.send(KillerMessage::Kill(id)).unwrap();
     });
     Ok(())
+}
+
+fn kill_child(mut child: Child) {
+    if let Err(e) = kill(Pid::from_raw(child.id() as i32), SIGTERM) {
+        eprintln!("{}", e);
+    } else {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        match child.try_wait() {
+            Ok(None) => {
+                if let Err(e) = child.kill() {
+                    eprintln!("{}", e);
+                } else if let Err(e) = child.wait() {
+                    eprintln!("{}", e);
+                }
+            }
+            Err(e) => eprintln!("{}", e),
+            _ => (),
+        }
+    }
+}
+
+fn start_child_killer(mut children: Vec<Child>) -> Res<mpsc::Sender<KillerMessage>> {
+    let (killer_tx, killer_rx) = mpsc::channel();
+    let mut status_children: HashMap<usize, Child> = HashMap::new();
+
+    thread::spawn({
+        let killer_tx = killer_tx.clone();
+        move || {
+            let (signal_sender, signal_receiver) = signal_msg::new();
+            signal_sender.prepare_signals();
+
+            loop {
+                match signal_receiver.listen() {
+                    Ok(Signal::Term) | Ok(Signal::Int) => {
+                        killer_tx.send(KillerMessage::Signal).unwrap()
+                    }
+                    _ => (),
+                }
+            }
+        }
+    });
+
+    thread::spawn(move || {
+        for msg in killer_rx {
+            match msg {
+                KillerMessage::Signal => {
+                    for child in children.drain(..) {
+                        if let Err(e) = kill(Pid::from_raw(child.id() as i32), SIGTERM) {
+                            eprintln!("{}", e);
+                        }
+                    }
+                    for (_, child) in status_children.drain() {
+                        if let Err(e) = kill(Pid::from_raw(child.id() as i32), SIGTERM) {
+                            eprintln!("{}", e);
+                        }
+                    }
+                    std::process::exit(0);
+                }
+                KillerMessage::Child(id, child) => {
+                    status_children.insert(id, child);
+                }
+                KillerMessage::Kill(id) => {
+                    status_children.remove(&id).map(kill_child);
+                }
+            }
+        }
+    });
+
+    Ok(killer_tx)
 }
 
 fn start_daemon() -> Result<(), Box<dyn Error>> {
