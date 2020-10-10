@@ -126,18 +126,20 @@ fn command_stdout(command: &[&str]) -> Res<(Child, CmdOut)> {
 }
 
 fn start_command(value: Value, command: &[&str], tx: Sender) -> Res<Child> {
-    let mut buf = String::new();
+    let mut new_buf = String::new();
     let (child, mut stdout) = command_stdout(command)?;
 
     thread::spawn(move || loop {
-        match stdout.read_line(&mut buf) {
+        match stdout.read_line(&mut new_buf) {
             Ok(0) => break,
             Ok(_) => {
-                buf.pop();
-                if update_value(&value, &buf) {
+                new_buf.pop();
+                let mut buf = value.write().unwrap();
+                if new_buf != *buf {
+                    std::mem::swap(&mut *buf, &mut new_buf);
                     tx.send(Ok(())).unwrap();
                 }
-                buf.clear();
+                new_buf.clear();
             }
             Err(e) => {
                 tx.send(Err(Arc::new(e))).unwrap();
