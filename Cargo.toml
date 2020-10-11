@@ -11,7 +11,7 @@ dirs = "3.0.1"
 structopt = "0.3.18"
 posixmq = "0.2.0"
 nix = "0.18.0"
-signal-msg = "0.2.1"
+simple-signal = "1.1.1"
 
 [profile.release]
 lto = true

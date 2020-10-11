@@ -10,7 +10,7 @@ use {
         unistd::Pid,
     },
     posixmq::{unlink, OpenOptions},
-    signal_msg::{Signal, SignalReceiver, SignalSender},
+    simple_signal::Signal,
     std::{
         collections::HashMap,
         error::Error,
@@ -299,22 +299,12 @@ fn start_child_killer(mut children: Vec<Child>) -> Res<mpsc::Sender<KillerMessag
     let (killer_tx, killer_rx) = mpsc::channel();
     let mut status_children: HashMap<usize, Child> = HashMap::new();
 
-    thread::spawn({
+    {
         let killer_tx = killer_tx.clone();
-        move || {
-            let (signal_sender, signal_receiver) = signal_msg::new();
-            signal_sender.prepare_signals();
-
-            loop {
-                match signal_receiver.listen() {
-                    Ok(Signal::Term) | Ok(Signal::Int) => {
-                        killer_tx.send(KillerMessage::Signal).unwrap()
-                    }
-                    _ => (),
-                }
-            }
-        }
-    });
+        simple_signal::set_handler(&[Signal::Term, Signal::Int], move |_| {
+            killer_tx.send(KillerMessage::Signal).unwrap()
+        });
+    }
 
     thread::spawn(move || {
         for msg in killer_rx {
