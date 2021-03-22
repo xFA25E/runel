@@ -1,0 +1,2 @@
+* LBrightness (listen brightness?)
+  Watch changes in brightness (linux) and print them to stdout.

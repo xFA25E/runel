@@ -1,0 +1,2 @@
+* LBattery (listen battery?)
+  Print battery status to stdout periodically.

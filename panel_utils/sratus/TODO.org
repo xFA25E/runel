@@ -1,0 +1,17 @@
+#+SEQ_TODO: TODO | DONE CANCELLED
+
+* CANCELLED maybe try to use async for commands?
+  https://www.reddit.com/r/rust/comments/bg7h8e/q_how_to_handle_io_of_a_subprocess_asynchronously/
+  https://docs.rs/tokio/0.2.22/tokio/process/index.html
+  https://docs.rs/mio/0.7.2/mio/unix/struct.SourceFd.html
+  https://rust-lang.github.io/async-book/01_getting_started/02_why_async.html
+* CANCELLED Use failure?
+  it is usefull for contexts
+* CANCELLED maybe optimize by sending Arc<Field> not Field
+* DONE make types for colors
+* DONE Make writing to stdout more efficient with buffers
+* DONE Important! maybe I don't need a top level RwLock
+* DONE some refactoring
+  give types a name
+
+  reorganize functions

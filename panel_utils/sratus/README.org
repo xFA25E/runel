@@ -1,0 +1,34 @@
+* Sratus
+  Status line used for lemonbar. It is compile-configured through =config.rs=.  It prints
+  only when an update comes to stdout, so the commands used in =config.rs= should
+  constantly print to stdout.
+
+  Also, it can interactively set field's value.  This is useful when you want to create
+  widgets that will be updated by external commands.
+
+  For example: I have an external timer that calls ~sratus -u timer -v <value>~ to display
+  it's current running time.
+
+  Another example: my config of xbindkeys calls ~sratus -u keyseq -v <value>~ to show the
+  current keychord.
+
+  Colors are displayed in lemonbar format; if you omit colors, this status line can be
+  used for other bars.
+
+  Note: if you want to hack display format, you should look at ~print_fields~ function in
+  =server.rs=.
+
+  #+BEGIN_SRC text
+    USAGE:
+        sratus [OPTIONS]
+
+    FLAGS:
+        -h, --help       Prints help information
+        -V, --version    Prints version information
+
+    OPTIONS:
+            --color-body <COLOR_BODY>    Color for field body [default: ]
+            --color-head <COLOR_HEAD>    Color for field head [default: ]
+        -u, --update <FIELD>             Update field of statusbar
+        -v, --value <VALUE>              Update value
+  #+END_SRC

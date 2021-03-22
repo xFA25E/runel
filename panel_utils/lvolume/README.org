@@ -1,0 +1,2 @@
+* LVolume (listen volume?)
+  Watch changes in alsa volume and print them to stdout.

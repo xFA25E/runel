@@ -1,0 +1,18 @@
+[package]
+name = "sratus"
+version = "0.1.0"
+authors = ["xFA25E <55886566+xFA25E@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+posixmq = "0.2.0"
+structopt = "0.3.18"
+nix = "0.18.0"
+simple-signal = "1.1.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = 'abort'
